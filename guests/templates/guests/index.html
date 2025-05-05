@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Подсчёт гостей</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    let rtspIntervalId = null;
+
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+
+    function startRtspAutoUpdate() {
+      const rtspInput = document.getElementById('id_rtsp_url');
+      const rtspUrl = rtspInput.value;
+      if (!rtspUrl) {
+        alert("Введите RTSP-ссылку");
+        return;
+      }
+      const img = document.getElementById('snapshot-img');
+      img.classList.remove('hidden');
+      document.getElementById('stop-btn').classList.remove('hidden');
+      document.getElementById('start-btn').disabled = true;
+
+      rtspIntervalId = setInterval(() => {
+        fetch('/process_rtsp/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'X-CSRFToken': getCookie('csrftoken')
+          },
+          body: new URLSearchParams({ 'rtsp_url': rtspUrl })
+        })
+        .then(response => response.json())
+        .then(data => {
+          document.getElementById('guest-count').innerText = `Обнаружено гостей: ${data.count}`;
+          img.src = data.result_url + '?t=' + new Date().getTime();
+        });
+      }, 10000);
+    }
+
+    function stopRtspAutoUpdate() {
+      clearInterval(rtspIntervalId);
+      document.getElementById('stop-btn').classList.add('hidden');
+      document.getElementById('start-btn').disabled = false;
+      document.getElementById('snapshot-img').classList.add('hidden');
+      document.getElementById('guest-count').innerText = 'Обнаружено гостей: -';
+    }
+
+    function handleUpload(formId, resultContainerId) {
+      const form = document.getElementById(formId);
+      const formData = new FormData(form);
+      fetch('/', {
+        method: 'POST',
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        const container = document.getElementById(resultContainerId);
+        container.innerHTML = `
+          <p class='font-medium mt-4'>Обнаружено гостей: ${data.count}</p>
+          ${data.result_url.endsWith('.mp4')
+            ? `<video class='w-full rounded-lg shadow mt-2' controls><source src='${data.result_url}' type='video/mp4'></video>`
+            : `<img class='mt-2 rounded-lg shadow max-w-full' src='${data.result_url}' alt='Результат'>`}
+        `;
+      });
+    }
+
+    function uploadImage() {
+        const input = document.getElementById('image-input');
+        const file = input.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        fetch('/process_image/', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('image-count').textContent = data.count;
+            document.getElementById('image-preview').src = data.result_url;
+            document.getElementById('image-result').classList.remove('hidden');
+        });
+    }
+
+    function uploadVideo() {
+        const input = document.getElementById('video-input');
+        const file = input.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('video', file);
+
+        fetch('/process_video/', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('video-count').textContent = data.count;
+            document.getElementById('video-preview').src = data.result_url;
+            document.getElementById('video-result').classList.remove('hidden');
+        });
+    }
+  </script>
+</head>
+<body class="bg-gray-100 text-gray-800 min-h-screen">
+  <div class="w-full px-6 py-8 space-y-10">
+    <h1 class="text-4xl font-bold text-center mb-8 text-blue-700">Система подсчёта гостей</h1>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      <!-- Фото -->
+      <div class="bg-white shadow-lg rounded-xl p-6 w-full">
+        <h2 class="text-xl font-semibold mb-4 text-gray-700">Фото</h2>
+        <form id="image-form" class="space-y-4">
+            <input type="file" name="image" id="image-input" accept="image/*" class="w-full p-2 border rounded" />
+            <button type="button" onclick="uploadImage()" class="bg-blue-600 text-white px-4 py-2 rounded">Обработать</button>
+        </form>
+        <div id="image-result" class="mt-4 hidden">
+            <p class="font-semibold">Обнаружено гостей: <span id="image-count">-</span></p>
+            <img id="image-preview" class="mt-2 rounded shadow" src="" alt="Результат">
+        </div>
+      </div>
+
+      <!-- Видео -->
+      <div class="bg-white shadow-lg rounded-xl p-6 w-full">
+        <h2 class="text-xl font-semibold mb-4 text-gray-700">Видео</h2>
+        <form id="video-form" class="space-y-4">
+            <input type="file" name="video" id="video-input" accept="video/*" class="w-full p-2 border rounded" />
+            <button type="button" onclick="uploadVideo()" class="bg-blue-600 text-white px-4 py-2 rounded">Обработать</button>
+        </form>
+        <div id="video-result" class="mt-4 hidden">
+            <p class="font-semibold">Максимальное число гостей: <span id="video-count">-</span></p>
+            <video id="video-preview" class="mt-2 rounded shadow w-full" controls></video>
+        </div>
+      </div>
+
+      <!-- RTSP -->
+      <div class="bg-white shadow-lg rounded-xl p-6 w-full">
+        <h2 class="text-xl font-semibold mb-4 text-gray-700">RTSP стрим</h2>
+        <label for="id_rtsp_url" class="block mb-2">RTSP-ссылка:</label>
+        <input type="text" id="id_rtsp_url" placeholder="rtsp://..." class="w-full border border-gray-300 rounded px-3 py-2">
+        <div class="flex space-x-2 mt-4">
+          <button id="start-btn" onclick="startRtspAutoUpdate()" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg">Запустить</button>
+          <button id="stop-btn" onclick="stopRtspAutoUpdate()" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg hidden">Остановить</button>
+        </div>
+        <h3 id="guest-count" class="mt-4 font-medium text-gray-800">Обнаружено гостей: -</h3>
+        <img id="snapshot-img" class="mt-4 rounded-lg shadow max-w-full hidden" src="" alt="Кадр из стрима">
+      </div>
+    </div>
+    <div class="mt-10 text-center">
+        <a href="{% url 'download_report' %}" class="bg-gray-700 hover:bg-gray-800 text-white px-6 py-3 rounded">
+            Скачать PDF-отчёт
+        </a>
+    </div>    
+  </div>
+</body>
+</html>
